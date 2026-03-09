@@ -1,237 +1,205 @@
 # LEDC Dimming Library（ESP-IDF）
 
-基于 ESP-IDF 的多通道调光库，支持：
-- 多通道线性渐变（fade）
-- RGB / CCT 快捷接口
-- 每通道最大值限制
-- 每通道 Gamma 校正（标准 Gamma 与自定义查表）
+一个专注于 ESP-IDF 平台的多通道调光组件，提供生产级的 PWM 渐变引擎、RGB/CCT 快捷接口以及可插拔的 Gamma 校正机制。该库对 MCU 资源占用极低，能够在不阻塞主业务逻辑的情况下实现平滑的 LED 亮度控制。
 
-当前工程默认用于 ESP32-C3，示例入口为 `main/dimming_test_main.c`。
+> English version: [README_DIMMING_LIB_EN.md](README_DIMMING_LIB_EN.md)
 
 ---
 
-## 1. 工程结构
+## 目录
+1. [特性概览](#特性概览)
+2. [仓库结构](#仓库结构)
+3. [环境与依赖](#环境与依赖)
+4. [构建与烧录](#构建与烧录)
+5. [快速上手](#快速上手)
+6. [API 速查](#api-速查)
+7. [Gamma 校正说明](#gamma-校正说明)
+8. [平台定时器抽象](#平台定时器抽象)
+9. [测试与调试](#测试与调试)
+10. [生产使用建议](#生产使用建议)
+11. [已知限制与改进方向](#已知限制与改进方向)
+
+---
+
+## 特性概览
+- ✅ **多通道渐变引擎**：支持任意通道数量，线性插值，自动计算步长与周期。
+- ✅ **RGB / CCT / 多通道便捷接口**：内置 `dimming_set_rgb`、`dimming_set_cct`、`dimming_set_multiple_with_fade` 等 API。
+- ✅ **每通道最大值限制**：可针对不同 LED 电气特性设置安全上限。
+- ✅ **Gamma 校正**：内置多种常用 Gamma（1.8/2.2/2.4），亦支持自定义查表。
+- ✅ **平台计时器抽象**：轻松移植到不同 RTOS/MCU，仅需实现 `platform_timer.h` 中接口。
+- ✅ **示例齐备**：`main/dimming_test_main.c` 提供单通道、RGB、CCT 及中途停止渐变的完整演示。
+
+---
+
+## 示意图与流程
+
+![示例 PWM 波形](image/ledc_pwm_signal.png)
+
+> 上图展示了 LEDC 以 4 kHz 频率输出 50% 占空比 PWM 时的波形，可用于验证硬件连线与 LEDC 配置。
+
+```mermaid
+graph LR
+    A[App Logic / User Task] --> B[dimming_set_* APIs]
+    B --> C[Dimming Core]
+    C --> D[Fade Scheduler<br/>Platform Timer]
+    D --> E[Gamma Engine]
+    E --> F[Driver Callback]
+    F --> G[LEDC / Hardware PWM]
+    G --> H[LED Strip / Fixture]
+```
+
+---
+
+## 仓库结构
 
 ```text
 .
-├─ CMakeLists.txt
+├─ components
+│  └─ dimming_lib
+│     ├─ include
+│     │  ├─ dimming_lib.h          # 调光库 API
+│     │  └─ platform_timer.h       # 平台定时器抽象
+│     └─ src
+│        ├─ dimming_lib_new.c      # 当前启用的调光实现
+│        └─ platform_timer_esp32.c # ESP-IDF 平台定时器
+├─ main
+│  ├─ dimming_test_main.c          # 调光库演示入口
+│  └─ ledc_basic_example_main.c    # 官方 LEDC 基础示例
 ├─ README.md
-├─ README_DIMMING_LIB.md
-└─ main
-   ├─ CMakeLists.txt
-   ├─ dimming_lib.h
-   ├─ dimming_lib_new.c          # 当前启用的调光库实现
-   ├─ dimming_lib.c              # 旧实现（当前不参与编译）
-   ├─ platform_timer.h
-   ├─ platform_timer_esp32.c
-   ├─ dimming_test_main.c        # 测试/演示入口
-   └─ ledc_basic_example_main.c  # LEDC基础示例
+└─ README_DIMMING_LIB.md           # 本文件
 ```
 
-当前组件编译源（`main/CMakeLists.txt`）为：
-- `dimming_test_main.c`
-- `dimming_lib_new.c`
-- `platform_timer_esp32.c`
+> **提示**：`main` 目录下的基础 LEDC 示例与调光示例互斥，构建前请在 `CMakeLists.txt` 中确认入口文件。
 
 ---
 
-## 2. 依赖与构建
+## 环境与依赖
+- ESP-IDF v5.x（最低 v4.4 亦可，但推荐使用 v5.x 以获得更佳工具链支持）。
+- Python 3.8+（ESP-IDF 依赖）。
+- 一块支持 LEDC 的 Espressif SoC 开发板（示例默认 ESP32-C3）。
+- 可用的 USB 串口连接线。
 
-### 2.1 环境依赖
+---
 
-- ESP-IDF（建议 v5.x）
-- 可用的 `idf.py`
-- 目标开发板（如 ESP32-C3）
-
-### 2.2 构建与烧录
+## 构建与烧录
 
 ```bash
-idf.py set-target esp32c3
+idf.py set-target esp32c3   # 根据硬件选择目标
 idf.py build
 idf.py -p <PORT> flash monitor
 ```
 
----
-
-## 3. 设计概览
-
-### 3.1 数据模型
-
-每个通道维护：
-- `current_value`：当前线性值
-- `target_value`：目标线性值
-- `step_size`：每次定时更新的增量
-- `step_count`：剩余步数
-- `max_value`：该通道上限
-
-另有每通道 Gamma 配置：
-- `gamma_type`：`GAMMA_NONE / 18 / 22 / 24 / CUSTOM`
-- `gamma_enabled`：是否启用
-- `custom_gamma_table[256]`：自定义 LUT
-
-### 3.2 运行流程
-
-1. 用户通过 API 设置单通道或多通道目标值。  
-2. 若是渐变，计算 `step_count` 与 `step_size`。  
-3. 定时器周期触发，更新 `current_value`。  
-4. 输出前调用 Gamma 映射，最终通过 `driver_cb(channel, value)` 下发到驱动层。  
-
-注意：库内部存储的 `current_value/target_value` 都是**线性值**，Gamma 仅作用于最终输出值。
+- `<PORT>` 为串口号（如 `COM7` 或 `/dev/ttyUSB0`）。
+- 在 `monitor` 中可观察调光过程日志与 PWM duty 值。
+- 退出串口监视器：`Ctrl+]`。
 
 ---
 
-## 4. API 说明
+## 快速上手
 
-头文件：`main/dimming_lib.h`
+1. **配置 LEDC**：
+   - 参考 `main/dimming_test_main.c` 内的 `ledc_pwm_init()`。
+   - 将三个 LED 分别接入 GPIO5/6/7（可自行修改）。
 
-### 4.1 初始化与销毁
+2. **实现驱动回调**：
+   ```c
+   static void dimming_driver_callback(uint8_t channel, uint32_t value)
+   {
+       // value 为经过 Gamma 处理后的线性输出值（范围 0~max_value）
+       uint32_t duty = (value * 8191U) / 255U; // 13bit -> 8191
+       ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, ledc_channel_map[channel], duty));
+       ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, ledc_channel_map[channel]));
+   }
+   ```
 
-```c
-dimming_handle_t dimming_init(const dimming_config_t* config, dimming_driver_cb_t driver_cb);
-void dimming_deinit(dimming_handle_t handle);
-```
+3. **初始化调光库**：
+   ```c
+   dimming_config_t config = {
+       .channel_count = 3,
+       .max_value = 255,
+       .timer_period_ms = 12,
+   };
+   dimming_handle_t handle = dimming_init(&config, dimming_driver_callback);
+   ```
 
-### 4.2 基本调光
+4. **发起调光任务**：
+   ```c
+   dimming_set_immediate(handle, 0, 128);             // 立即设置通道0
+   dimming_set_with_fade(handle, 0, 255, 2000);       // 2 秒渐变
+   dimming_set_rgb(handle, 255, 64, 0, 1500);         // RGB 渐变
+   dimming_set_cct(handle, 200, 80, 1000);            // CCT 渐变
+   ```
 
-```c
-bool dimming_set_immediate(dimming_handle_t handle, uint8_t channel, uint32_t value);
-bool dimming_set_with_fade(dimming_handle_t handle, uint8_t channel, uint32_t value, uint32_t duration_ms);
-bool dimming_set_multiple_with_fade(dimming_handle_t handle, const uint8_t* channels,
-                                    const uint32_t* values, uint8_t count, uint32_t duration_ms);
-```
-
-### 4.3 状态与限制
-
-```c
-void dimming_stop_all_fades(dimming_handle_t handle);
-uint32_t dimming_get_current_value(dimming_handle_t handle, uint8_t channel);
-uint32_t dimming_get_target_value(dimming_handle_t handle, uint8_t channel);
-bool dimming_is_fading(dimming_handle_t handle);
-bool dimming_set_max_value(dimming_handle_t handle, uint8_t channel, uint32_t max_value);
-```
-
-### 4.4 便捷模式
-
-```c
-bool dimming_set_rgb(dimming_handle_t handle, uint8_t red, uint8_t green, uint8_t blue, uint32_t duration_ms);
-bool dimming_set_cct(dimming_handle_t handle, uint32_t warm, uint32_t cool, uint32_t duration_ms);
-```
-
-约定：
-- `dimming_set_rgb` 使用通道 `0/1/2` 分别对应 `R/G/B`
-- `dimming_set_cct` 使用通道 `0/1` 分别对应 `warm/cool`
-
-### 4.5 Gamma 校正
-
-```c
-bool dimming_set_gamma_type(dimming_handle_t handle, uint8_t channel, gamma_type_t gamma_type);
-bool dimming_set_custom_gamma_table(dimming_handle_t handle, uint8_t channel, const uint8_t* gamma_table);
-uint32_t dimming_apply_gamma(dimming_handle_t handle, uint8_t channel, uint32_t value);
-uint32_t dimming_remove_gamma(dimming_handle_t handle, uint8_t channel, uint32_t value);
-bool dimming_enable_gamma(dimming_handle_t handle, uint8_t channel, bool enable);
-void dimming_get_standard_gamma_table(float gamma, uint8_t* table);
-```
-
-行为说明：
-- `dimming_set_gamma_type(channel, GAMMA_22)` 会同时启用该通道 Gamma。
-- `dimming_set_custom_gamma_table(...)` 会切换为 `GAMMA_CUSTOM` 并启用。
-- `dimming_enable_gamma(channel, true)` 且当前类型为 `GAMMA_NONE` 时，会自动切到 `GAMMA_22`。
+5. **清理资源**：
+   ```c
+   dimming_deinit(handle);
+   ```
 
 ---
 
-## 5. 快速接入示例
+## API 速查
 
-### 5.1 初始化
+| 分组 | 关键 API | 说明 |
+| --- | --- | --- |
+| 初始化/销毁 | `dimming_init`, `dimming_deinit` | 创建/销毁上下文，注册驱动回调。 |
+| 单通道调光 | `dimming_set_immediate`, `dimming_set_with_fade` | 立即生效或按时长渐变。 |
+| 多通道调光 | `dimming_set_multiple_with_fade` | 同步渐变多个通道。 |
+| RGB/CCT 便捷接口 | `dimming_set_rgb`, `dimming_set_cct` | 固定映射通道顺序（0/1/2 对应 R/G/B，0/1 对应 Warm/Cool）。 |
+| 状态查询 | `dimming_get_current_value`, `dimming_get_target_value`, `dimming_is_fading` | 获取当前值/目标值/渐变状态。 |
+| 运行控制 | `dimming_stop_all_fades`, `dimming_set_max_value` | 强制停止或设置通道最大值。 |
+| Gamma 控制 | `dimming_set_gamma_type`, `dimming_set_custom_gamma_table`, `dimming_enable_gamma`, `dimming_apply_gamma`, `dimming_remove_gamma`, `dimming_get_standard_gamma_table` | 开启/关闭标准或自定义 Gamma，并支持线性值与 Gamma 值互换。 |
 
-```c
-dimming_config_t config = {
-    .channel_count = 3,
-    .max_value = 255,
-    .timer_period_ms = 12
-};
-
-dimming_handle_t handle = dimming_init(&config, driver_callback);
-```
-
-### 5.2 驱动回调（线性值或 Gamma 后值）
-
-库传给回调的是“最终输出值”（已按该通道 Gamma 处理），你只需要做硬件映射：
-
-```c
-static void driver_callback(uint8_t channel, uint32_t value)
-{
-    uint32_t duty = (value * 8191U) / 255U;
-    // ledc_set_duty(...) + ledc_update_duty(...)
-}
-```
-
-### 5.3 设置颜色与渐变
-
-```c
-dimming_set_immediate(handle, 0, 128);
-dimming_set_with_fade(handle, 0, 255, 1200);
-dimming_set_rgb(handle, 255, 32, 8, 1500);
-```
-
-### 5.4 启用标准 Gamma
-
-```c
-dimming_set_gamma_type(handle, 0, GAMMA_22);   // 通道0启用Gamma2.2
-dimming_set_gamma_type(handle, 1, GAMMA_24);   // 通道1启用Gamma2.4
-```
-
-### 5.5 自定义 Gamma LUT
-
-```c
-uint8_t table[256];
-dimming_get_standard_gamma_table(2.0f, table); // 先生成一个示例表
-dimming_set_custom_gamma_table(handle, 2, table);
-```
+详见 `components/dimming_lib/include/dimming_lib.h` 中的注释。
 
 ---
 
-## 6. 平台定时器抽象
-
-接口定义在 `main/platform_timer.h`：
-- `platform_timer_create`
-- `platform_timer_start`
-- `platform_timer_stop`
-- `platform_timer_is_running`
-- `platform_timer_delete`
-
-ESP32 适配在 `main/platform_timer_esp32.c`，基于 `esp_timer`。
-
-移植到其它平台时，只需实现 `platform_timer.h` 中的接口。
+## Gamma 校正说明
+- **默认状态**：每个通道启用 `GAMMA_22`，适合大多数视觉线性需求。
+- **禁用 Gamma**：调用 `dimming_set_gamma_type(..., GAMMA_NONE)` 或 `dimming_enable_gamma(..., false)`。
+- **自定义 LUT**：
+  1. 准备 256 长度的查找表，输入值代表 0~255 的亮度感知映射。
+  2. 调用 `dimming_set_custom_gamma_table(handle, channel, table)`。
+  3. 库内会自动将 LUT 结果映射到当前通道 `max_value` 量程。
+- **线性值回读**：
+  - `dimming_get_current_value` 返回 Gamma 前的线性值。
+  - 若需要获取 “输出值”，可使用 `dimming_apply_gamma`。
 
 ---
 
-## 7. 已知限制（当前代码状态）
-
-1. `platform_timer_esp32.c` 当前将周期硬编码为 `12000us`，即固定 12ms。  
-   这意味着即使 `dimming_config_t.timer_period_ms` 设为其他值，实际定时触发周期仍是 12ms。
-
-2. 渐变步长是整数除法计算，某些小步长场景下会在最后一步收敛到目标值。  
-   这是预期行为，不影响最终目标值正确性。
-
-3. 库目前未加锁，默认按“单任务上下文调用”设计。  
-   多任务并发调用时，建议外部加互斥保护。
+## 平台定时器抽象
+- 接口定义见 `platform_timer.h`。
+- ESP32 实现基于 `esp_timer`（文件：`platform_timer_esp32.c`）。
+- 移植步骤：
+  1. 在新平台实现 `platform_timer_*` API，内部使用该平台的高精定时器或 RTOS 定时器。
+  2. 确保回调在中断安全或任务上下文运行，并在必要时切换到任务上下文执行较重逻辑。
+  3. `platform_get_time_ms`、`platform_delay_ms` 用于库内基础时间操作，可映射到 HAL 接口。
 
 ---
 
-## 8. 测试入口
-
-`main/dimming_test_main.c` 已包含以下演示：
-- 单通道立即设置与渐变
-- RGB 渐变
-- CCT 渐变
-- 中途停止渐变
-
-串口中可观察各通道输出值和 PWM duty 变化。
+## 测试与调试
+- `main/dimming_test_main.c` 包含以下示例：
+  1. 单通道立即设置 + 渐变
+  2. RGB 循环渐变
+  3. CCT 调光
+  4. 中途停止渐变并读取当前值
+- 串口日志会打印每次回调的 `value` 与计算出的 PWM `duty`，方便排查。
+- 如需更详细日志，可在 `dimming_lib_new.c` 中添加 `ESP_LOG*` 调用，或在应用层统计 `dimming_get_current_value`。
 
 ---
 
-## 9. 后续建议
+## 生产使用建议
+1. **线程安全**：库内未加锁，如存在多任务并发调用，需在外层加互斥锁或消息队列保护。
+2. **内存分配**：初始化阶段使用 `calloc`，可在静态内存环境中改写为 `heap_caps_malloc` 或静态数组，以满足无动态内存需求。
+3. **PWM 分辨率**：示例使用 13bit LEDC，可根据实际硬件提升或降低分辨率，但需同步调整回调中的换算。
+4. **Fail-Safe**：若驱动层（如 LEDC）配置失败，应在回调中返回错误并做降级处理，避免 LED 长时间全亮或全灭。
+5. **功耗/发热**：长期高占空比运行时请考虑额外散热及过流保护。
 
-- 修复 `platform_timer_esp32.c`：使用 `config->period_ms` 替代硬编码 12ms。
-- 根据业务增加模式接口：如 HSV、场景序列、曲线渐变。
-- 如需更平滑视觉效果，可在应用层搭配更高 PWM 分辨率与更细粒度值域。
+---
+
+## 已知限制与改进方向
+1. **定时器周期硬编码**：`platform_timer_esp32.c` 当前忽略 `config->period_ms`，固定为 12ms。建议根据配置传参，或在初始化处断言提醒。
+2. **步长粒度**：线性插值采用整数除法，在极短渐变时可能在最后一次跳变至目标值，这是为避免浮点引入的取舍。
+3. **多上下文调用**：尚未内置线程安全机制，未来可选配互斥锁或消息队列以支持多任务安全访问。
+4. **高级曲线**：当前仅支持线性渐变，后续可扩展 S 曲线、指数或用户自定义插值器。
+
+欢迎在此基础上扩展更多高级调光策略，如动画序列、场景脚本或远程 OTA 配置下发等。若在使用过程中遇到问题，可通过串口日志、`dimming_get_target_value` 与 `dimming_is_fading` 快速定位。
