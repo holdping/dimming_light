@@ -1,10 +1,12 @@
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 
 #include "driver/ledc.h"
 
 #include "light_bulb.h"
+#include "platform_timer.h"
 
 #define APP_CHANNEL_COUNT   3U
 #define APP_MAX_VALUE       255U
@@ -20,6 +22,21 @@ typedef struct {
     ledc_channel_t channels[APP_CHANNEL_COUNT];
     uint32_t pwm_max_duty;
 } esp32_ledc_driver_t;
+
+typedef enum {
+    DEMO_STEP_CCT_WARM = 0,
+    DEMO_STEP_CCT_NEUTRAL,
+    DEMO_STEP_CCT_COOL,
+    DEMO_STEP_CW_ONLY,
+    DEMO_STEP_WW_ONLY,
+    DEMO_STEP_CCT_MIX,
+    DEMO_STEP_RGB_CYCLE
+} demo_step_t;
+
+typedef struct {
+    demo_step_t step;
+    uint32_t hold_ms;
+} demo_profile_step_t;
 
 static esp32_ledc_driver_t s_ledc_driver = {
     .gpio_red = 5,
@@ -41,6 +58,16 @@ static const light_bulb_color_t s_color_cycle[] = {
     {0, 255, 255},
     {255, 0, 255},
     {255, 255, 0}
+};
+
+static const demo_profile_step_t s_demo_steps[] = {
+    {DEMO_STEP_CCT_WARM, 1000U},
+    {DEMO_STEP_CCT_NEUTRAL, 1000U},
+    {DEMO_STEP_CCT_COOL, 1000U},
+    {DEMO_STEP_CW_ONLY, 1000U},
+    {DEMO_STEP_WW_ONLY, 1000U},
+    {DEMO_STEP_CCT_MIX, 1000U},
+    {DEMO_STEP_RGB_CYCLE, 800U}
 };
 
 static bool app_ledc_driver_init(void *user_ctx)
@@ -104,6 +131,28 @@ static bool app_ledc_driver_set_channel(void *user_ctx, uint8_t channel, uint32_
     return (ledc_update_duty(driver->ledc_mode, driver->channels[channel]) == ESP_OK);
 }
 
+static bool start_demo_step(light_bulb_handle_t bulb, demo_step_t step, size_t rgb_index)
+{
+    switch (step) {
+        case DEMO_STEP_CCT_WARM:
+            return light_bulb_transition_cct_percent(bulb, 0U, 255U);
+        case DEMO_STEP_CCT_NEUTRAL:
+            return light_bulb_transition_cct_percent(bulb, 50U, 255U);
+        case DEMO_STEP_CCT_COOL:
+            return light_bulb_transition_cct_percent(bulb, 100U, 255U);
+        case DEMO_STEP_CW_ONLY:
+            return light_bulb_transition_cw(bulb, 255U);
+        case DEMO_STEP_WW_ONLY:
+            return light_bulb_transition_ww(bulb, 255U);
+        case DEMO_STEP_CCT_MIX:
+            return light_bulb_transition_cct(bulb, 180U, 90U);
+        case DEMO_STEP_RGB_CYCLE:
+            return light_bulb_transition_color(bulb, s_color_cycle[rgb_index]);
+        default:
+            return false;
+    }
+}
+
 void app_main(void)
 {
     printf("\n=== Light Bulb Portable Demo (ESP32 Adapter) ===\n");
@@ -117,6 +166,11 @@ void app_main(void)
     bulb_config.driver.init = app_ledc_driver_init;
     bulb_config.driver.deinit = app_ledc_driver_deinit;
     bulb_config.driver.set_channel = app_ledc_driver_set_channel;
+    bulb_config.map.red = 0U;
+    bulb_config.map.green = 1U;
+    bulb_config.map.blue = 2U;
+    bulb_config.map.warm = 0U;
+    bulb_config.map.cool = 1U;
 
     bulb_config.scene.fade_duration_ms = 3000U;
     bulb_config.scene.hold_duration_ms = 1500U;
@@ -129,10 +183,45 @@ void app_main(void)
         return;
     }
 
-    light_bulb_run_color_cycle(
-        bulb,
-        s_color_cycle,
-        sizeof(s_color_cycle) / sizeof(s_color_cycle[0]),
-        0U
-    );
+    size_t step_index = 0U;
+    size_t rgb_index = 0U;
+    bool transition_in_progress = false;
+    uint32_t hold_deadline_ms = 0U;
+    uint32_t current_hold_ms = 0U;
+
+    while (1) {
+        uint32_t now_ms = platform_get_time_ms();
+
+        if (!transition_in_progress) {
+            if (now_ms >= hold_deadline_ms) {
+                const demo_profile_step_t *step_cfg = &s_demo_steps[step_index];
+                bool ok = start_demo_step(bulb, step_cfg->step, rgb_index);
+                if (!ok) {
+                    printf("Transition failed at step %u\n", (unsigned)step_index);
+                    hold_deadline_ms = now_ms + 200U;
+                } else {
+                    transition_in_progress = true;
+                    current_hold_ms = step_cfg->hold_ms;
+                }
+            }
+        } else if (!light_bulb_is_fading(bulb)) {
+            transition_in_progress = false;
+            hold_deadline_ms = now_ms + current_hold_ms;
+
+            if (s_demo_steps[step_index].step == DEMO_STEP_RGB_CYCLE) {
+                rgb_index++;
+                if (rgb_index >= (sizeof(s_color_cycle) / sizeof(s_color_cycle[0]))) {
+                    rgb_index = 0U;
+                    step_index = 0U;
+                }
+            } else {
+                step_index++;
+                if (step_index >= (sizeof(s_demo_steps) / sizeof(s_demo_steps[0]))) {
+                    step_index = 0U;
+                }
+            }
+        }
+
+        platform_delay_ms(20U);
+    }
 }

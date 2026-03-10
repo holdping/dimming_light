@@ -24,6 +24,8 @@ A production-ready multi-channel dimming component tailored for ESP-IDF. It deli
 ## Features
 - ✅ **Scalable channel fade engine**: any number of channels, linear interpolation, auto step computation.
 - ✅ **RGB / CCT / multi-channel helpers**: `dimming_set_rgb`, `dimming_set_cct`, `dimming_set_multiple_with_fade` ready out of the box.
+- ✅ **Portable `light_bulb` module**: hardware-agnostic driver callbacks (`init/deinit/set_channel`) for cross-platform migration.
+- ✅ **Rich light playbook**: built-in CCT/CW/WW transitions, scene presets, color utilities, and animation effects.
 - ✅ **Per-channel max clamp**: enforce electrical safety limits independently.
 - ✅ **Gamma correction**: built-in gamma 1.8/2.2/2.4 and user-defined LUTs.
 - ✅ **Portable timer abstraction**: implement `platform_timer.*` once per MCU/RTOS.
@@ -39,9 +41,11 @@ A production-ready multi-channel dimming component tailored for ESP-IDF. It deli
 │  └─ dimming_lib
 │     ├─ include
 │     │  ├─ dimming_lib.h          # Public API
+│     │  ├─ light_bulb.h           # Portable bulb module + effects
 │     │  └─ platform_timer.h       # Timer abstraction
 │     └─ src
 │        ├─ dimming_lib_new.c      # Active dimming implementation
+│        ├─ light_bulb.c           # Scene/effects/color helpers
 │        └─ platform_timer_esp32.c # ESP-IDF timer port
 ├─ main
 │  ├─ dimming_test_main.c          # Demo entry point
@@ -118,6 +122,44 @@ idf.py -p <PORT> flash monitor
 
 ---
 
+## Light Bulb Playbook
+
+`light_bulb` sits on top of `dimming_lib` and gives you higher-level controls:
+
+- Scene helpers: `light_bulb_apply_relax_scene`, `light_bulb_apply_reading_scene`, `light_bulb_sunrise_simulation`, ...
+- White tuning: `light_bulb_transition_cct`, `light_bulb_transition_cw`, `light_bulb_transition_ww`
+- Effects: rainbow, breath, pulse, strobe, fire, scanner, theater chase
+- Color tools: mix colors, scale brightness, Kelvin-to-RGB/CCT conversion
+
+### Minimal portable setup
+
+```c
+static bool my_driver_set(void *ctx, uint8_t ch, uint32_t value, uint32_t max_value) {
+    return pwm_write(ctx, ch, value, max_value);
+}
+
+light_bulb_config_t cfg;
+light_bulb_get_default_config(&cfg);
+cfg.driver.user_ctx = &my_pwm;
+cfg.driver.channel_count = 3;
+cfg.driver.set_channel = my_driver_set;
+cfg.map.red = 0; cfg.map.green = 1; cfg.map.blue = 2;
+cfg.map.warm = 0; cfg.map.cool = 1;
+
+light_bulb_handle_t bulb = light_bulb_create(&cfg);
+```
+
+### Play examples
+
+```c
+light_bulb_transition_cct_percent(bulb, 20, 255);      // warm white
+light_bulb_transition_cw(bulb, 255);                   // cool-only white
+light_bulb_run_breath_effect(bulb, LIGHT_BULB_COLOR_CYAN, 1800, 10);
+light_bulb_run_rainbow_effect(bulb, 2400, 5);
+```
+
+---
+
 ## API Reference
 
 | Group | Key APIs | Description |
@@ -129,6 +171,7 @@ idf.py -p <PORT> flash monitor
 | State queries | `dimming_get_current_value`, `dimming_get_target_value`, `dimming_is_fading` | Inspect current/target values or fade state. |
 | Runtime control | `dimming_stop_all_fades`, `dimming_set_max_value` | Abort fades or clamp per-channel maximum. |
 | Gamma | `dimming_set_gamma_type`, `dimming_set_custom_gamma_table`, `dimming_enable_gamma`, `dimming_apply_gamma`, `dimming_remove_gamma`, `dimming_get_standard_gamma_table` | Toggle standard/custom gamma, convert between linear and gamma space. |
+| High-level bulb API | `light_bulb_*` | Portable scenes/effects/color conversion on top of dimming core. |
 
 Refer to `components/dimming_lib/include/dimming_lib.h` for exhaustive documentation.
 

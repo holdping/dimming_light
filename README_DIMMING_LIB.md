@@ -203,3 +203,26 @@ idf.py -p <PORT> flash monitor
 4. **高级曲线**：当前仅支持线性渐变，后续可扩展 S 曲线、指数或用户自定义插值器。
 
 欢迎在此基础上扩展更多高级调光策略，如动画序列、场景脚本或远程 OTA 配置下发等。若在使用过程中遇到问题，可通过串口日志、`dimming_get_target_value` 与 `dimming_is_fading` 快速定位。
+
+---
+
+## Light Bulb 高级玩法（新增）
+
+`components/dimming_lib/include/light_bulb.h` 提供了更高层的灯具能力，适用于跨平台移植（通过 `driver.init / driver.deinit / driver.set_channel` 适配底层硬件）。
+
+### 主要新增能力
+
+- 白光调节：`light_bulb_transition_cct`、`light_bulb_transition_cw`、`light_bulb_transition_ww`
+- 预设场景：`light_bulb_apply_relax_scene`、`light_bulb_apply_reading_scene`、`light_bulb_apply_night_scene`、`light_bulb_sunrise_simulation` 等
+- 动效玩法：`light_bulb_run_rainbow_effect`、`light_bulb_run_breath_effect`、`light_bulb_run_strobe_effect`、`light_bulb_run_fire_effect`、`light_bulb_run_scanner_effect`
+- 颜色工具：`light_bulb_color_mix`、`light_bulb_color_brightness`、`light_bulb_color_temperature_to_rgb`、`light_bulb_color_temperature_to_cct`
+- 运行控制：`light_bulb_start_effect`、`light_bulb_stop_effect`、`light_bulb_is_effect_running`
+
+### 示例
+
+```c
+light_bulb_transition_cct_percent(bulb, 25, 255);   // 偏暖白
+light_bulb_transition_cw(bulb, 255);                // 仅冷白
+light_bulb_run_breath_effect(bulb, LIGHT_BULB_COLOR_CYAN, 1800, 10);
+light_bulb_run_rainbow_effect(bulb, 2400, 5);
+```
