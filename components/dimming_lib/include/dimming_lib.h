@@ -41,12 +41,30 @@ typedef struct {
 } dimming_channel_t;
 
 /**
+ * @brief Gamma校正配置（按通道）
+ */
+typedef struct {
+    bool enabled;        ///< 是否启用gamma
+    gamma_type_t type;   ///< gamma类型
+} dimming_gamma_config_t;
+
+/**
+ * @brief 渐变配置（按通道）
+ */
+typedef struct {
+    bool enabled;                ///< 是否启用渐变（false则强制立即生效）
+    uint32_t default_duration_ms;///< 默认渐变时间（用于未指定时）
+} dimming_fade_config_t;
+
+/**
  * @brief 调光库配置结构体
  */
 typedef struct {
-    uint8_t channel_count;    ///< 通道数量
-    uint32_t max_value;       ///< 默认最大值
-    uint32_t timer_period_ms; ///< 定时器周期（默认12ms）
+    uint8_t channel_count;            ///< 通道数量
+    uint32_t max_value;               ///< 默认最大值
+    uint32_t timer_period_ms;         ///< 定时器周期（默认12ms）
+    const dimming_gamma_config_t *gamma_configs; ///< 每通道gamma配置（可为NULL，表示默认启用GAMMA_22）
+    const dimming_fade_config_t *fade_configs;   ///< 每通道渐变配置（可为NULL，表示默认启用渐变，默认时长=0）
 } dimming_config_t;
 
 /**

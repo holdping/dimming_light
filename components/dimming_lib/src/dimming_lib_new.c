@@ -21,8 +21,14 @@ typedef struct {
 } fade_channel_state_t;
 
 typedef struct {
+    bool fade_enabled;
+    uint32_t default_duration_ms;
+} fade_channel_config_t;
+
+typedef struct {
     dimming_channel_t *channels;
     gamma_channel_config_t *gamma_configs;
+    fade_channel_config_t *fade_configs;
     fade_channel_state_t *fade_states;
     uint8_t channel_count;
     uint32_t timer_period_ms;
@@ -67,8 +73,17 @@ dimming_handle_t dimming_init(const dimming_config_t *config, dimming_driver_cb_
         return NULL;
     }
 
+    ctx->fade_configs = (fade_channel_config_t *)calloc(config->channel_count, sizeof(fade_channel_config_t));
+    if (!ctx->fade_configs) {
+        free(ctx->gamma_configs);
+        free(ctx->channels);
+        free(ctx);
+        return NULL;
+    }
+
     ctx->fade_states = (fade_channel_state_t *)calloc(config->channel_count, sizeof(fade_channel_state_t));
     if (!ctx->fade_states) {
+        free(ctx->fade_configs);
         free(ctx->gamma_configs);
         free(ctx->channels);
         free(ctx);
@@ -91,6 +106,28 @@ dimming_handle_t dimming_init(const dimming_config_t *config, dimming_driver_cb_
         ctx->gamma_configs[i].gamma_type = GAMMA_22;
         ctx->gamma_configs[i].gamma_enabled = true;
         ctx->gamma_configs[i].custom_table_valid = false;
+
+        ctx->fade_configs[i].fade_enabled = true;
+        ctx->fade_configs[i].default_duration_ms = 0U;
+    }
+
+    if (config->gamma_configs) {
+        for (uint8_t i = 0; i < config->channel_count; i++) {
+            gamma_type_t type = config->gamma_configs[i].type;
+            if (type > GAMMA_CUSTOM) {
+                type = GAMMA_22;
+            }
+
+            ctx->gamma_configs[i].gamma_enabled = config->gamma_configs[i].enabled;
+            ctx->gamma_configs[i].gamma_type = ctx->gamma_configs[i].gamma_enabled ? type : GAMMA_NONE;
+        }
+    }
+
+    if (config->fade_configs) {
+        for (uint8_t i = 0; i < config->channel_count; i++) {
+            ctx->fade_configs[i].fade_enabled = config->fade_configs[i].enabled;
+            ctx->fade_configs[i].default_duration_ms = config->fade_configs[i].default_duration_ms;
+        }
     }
 
     platform_timer_config_t timer_config = {
@@ -103,6 +140,7 @@ dimming_handle_t dimming_init(const dimming_config_t *config, dimming_driver_cb_
 
     if (!platform_timer_create(&timer_config, &ctx->timer_handle)) {
         free(ctx->fade_states);
+        free(ctx->fade_configs);
         free(ctx->gamma_configs);
         free(ctx->channels);
         free(ctx);
@@ -126,6 +164,7 @@ void dimming_deinit(dimming_handle_t handle)
     }
 
     free(ctx->fade_states);
+    free(ctx->fade_configs);
     free(ctx->gamma_configs);
     free(ctx->channels);
     free(ctx);
@@ -167,9 +206,19 @@ bool dimming_set_with_fade(dimming_handle_t handle, uint8_t channel, uint32_t va
     }
 
     dimming_channel_t *ch = &ctx->channels[channel];
+    fade_channel_config_t *fade_cfg = &ctx->fade_configs[channel];
+    uint32_t effective_duration_ms = duration_ms;
     value = clamp_to_max(value, ch->max_value);
 
-    if (duration_ms == 0U) {
+    if (!fade_cfg->fade_enabled) {
+        return dimming_set_immediate(handle, channel, value);
+    }
+
+    if (effective_duration_ms == 0U) {
+        effective_duration_ms = fade_cfg->default_duration_ms;
+    }
+
+    if (effective_duration_ms == 0U) {
         return dimming_set_immediate(handle, channel, value);
     }
 
@@ -177,7 +226,7 @@ bool dimming_set_with_fade(dimming_handle_t handle, uint8_t channel, uint32_t va
         return true;
     }
 
-    uint32_t step_count = calculate_step_count(ch->current_value, value, duration_ms, ctx->timer_period_ms);
+    uint32_t step_count = calculate_step_count(ch->current_value, value, effective_duration_ms, ctx->timer_period_ms);
     int32_t step_size = calculate_step_size(ch->current_value, value, step_count);
 
     ch->target_value = value;
