@@ -76,3 +76,6 @@ Desktop.ini
 *.workspace # General workspace files, can be from various tools
 *.suo       # Visual Studio Solution User Options
 *.sln.docstates # Visual Studio
+.vscode/ # If using VS Code, but you may want to keep this if you have project-specific settings
+.devcontainer/ # If using Dev Containers in VS Code, but you may want to keep this if you have project-specific settings
+.continue/ # If using GitHub Codespaces, but you may want to keep this if you have project-specific settings

@@ -42,6 +42,10 @@ typedef enum {
     LIGHT_BULB_EFFECT_THEATER_CHASE,
     LIGHT_BULB_EFFECT_SCANNER,
     LIGHT_BULB_EFFECT_LARSON_SCANNER,
+    LIGHT_BULB_EFFECT_LIGHTNING,
+    LIGHT_BULB_EFFECT_OCEAN_WAVE,
+    LIGHT_BULB_EFFECT_AURORA,
+    LIGHT_BULB_EFFECT_FOREST_BREEZE,
 } light_bulb_effect_t;
 
 typedef struct {
@@ -142,6 +146,10 @@ void light_bulb_run_color_wipe(light_bulb_handle_t handle, const light_bulb_colo
 void light_bulb_run_theater_chase(light_bulb_handle_t handle, light_bulb_color_t color1, light_bulb_color_t color2, uint32_t speed_ms, uint32_t loop_count);
 void light_bulb_run_scanner_effect(light_bulb_handle_t handle, light_bulb_color_t color, uint32_t speed_ms, uint32_t loop_count);
 void light_bulb_run_larson_scanner(light_bulb_handle_t handle, light_bulb_color_t color, uint32_t speed_ms, uint32_t loop_count);
+void light_bulb_run_lightning_effect(light_bulb_handle_t handle, uint32_t intensity, uint32_t duration_ms);
+void light_bulb_run_ocean_wave_effect(light_bulb_handle_t handle, uint32_t period_ms, uint32_t loop_count);
+void light_bulb_run_aurora_effect(light_bulb_handle_t handle, uint32_t period_ms, uint32_t loop_count);
+void light_bulb_run_forest_breeze_effect(light_bulb_handle_t handle, uint32_t period_ms, uint32_t loop_count);
 
 /* 预设场景快捷方式 */
 bool light_bulb_apply_relax_scene(light_bulb_handle_t handle);

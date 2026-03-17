@@ -129,6 +129,7 @@ idf.py -p <PORT> flash monitor
 - Scene helpers: `light_bulb_apply_relax_scene`, `light_bulb_apply_reading_scene`, `light_bulb_sunrise_simulation`, ...
 - White tuning: `light_bulb_transition_cct`, `light_bulb_transition_cw`, `light_bulb_transition_ww`
 - Effects: rainbow, breath, pulse, strobe, fire, scanner, theater chase
+- Nature effects: `lightning`, `ocean_wave`, `aurora`, `forest_breeze`
 - Color tools: mix colors, scale brightness, Kelvin-to-RGB/CCT conversion
 
 ### Minimal portable setup
@@ -156,6 +157,10 @@ light_bulb_transition_cct_percent(bulb, 20, 255);      // warm white
 light_bulb_transition_cw(bulb, 255);                   // cool-only white
 light_bulb_run_breath_effect(bulb, LIGHT_BULB_COLOR_CYAN, 1800, 10);
 light_bulb_run_rainbow_effect(bulb, 2400, 5);
+light_bulb_run_lightning_effect(bulb, 85, 7000);       // storm flashes
+light_bulb_run_ocean_wave_effect(bulb, 2600, 8);       // sea wave color drift
+light_bulb_run_aurora_effect(bulb, 3200, 6);           // aurora gradient motion
+light_bulb_run_forest_breeze_effect(bulb, 2800, 8);    // warm/green breeze pulse
 ```
 
 ---

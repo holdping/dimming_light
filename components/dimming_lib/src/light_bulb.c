@@ -38,6 +38,27 @@ static bool light_bulb_map_channel_valid(uint8_t channel, uint8_t channel_count)
     return (channel == LIGHT_BULB_CHANNEL_INVALID) || light_bulb_channel_in_range(channel, channel_count);
 }
 
+static bool light_bulb_has_rgb_channels(light_bulb_handle_t handle)
+{
+    if (!handle) {
+        return false;
+    }
+
+    return (handle->map.red != LIGHT_BULB_CHANNEL_INVALID) &&
+           (handle->map.green != LIGHT_BULB_CHANNEL_INVALID) &&
+           (handle->map.blue != LIGHT_BULB_CHANNEL_INVALID);
+}
+
+static bool light_bulb_has_cct_channels(light_bulb_handle_t handle)
+{
+    if (!handle) {
+        return false;
+    }
+
+    return (handle->map.warm != LIGHT_BULB_CHANNEL_INVALID) &&
+           (handle->map.cool != LIGHT_BULB_CHANNEL_INVALID);
+}
+
 static uint32_t light_bulb_clamp_u32(uint32_t value, uint32_t max_value)
 {
     return (value > max_value) ? max_value : value;
@@ -77,6 +98,17 @@ static void light_bulb_delay_with_abort(light_bulb_handle_t handle, uint32_t del
         uint32_t step = (remaining > LIGHT_BULB_WAIT_STEP_MS) ? LIGHT_BULB_WAIT_STEP_MS : remaining;
         platform_delay_ms(step);
         remaining -= step;
+    }
+}
+
+static void light_bulb_wait_fade_done_with_abort(light_bulb_handle_t handle)
+{
+    if (!handle || !handle->dimming) {
+        return;
+    }
+
+    while (handle->effect_running && dimming_is_fading(handle->dimming)) {
+        platform_delay_ms(LIGHT_BULB_WAIT_STEP_MS);
     }
 }
 
@@ -521,7 +553,7 @@ void light_bulb_run_color_cycle(light_bulb_handle_t handle,
             if (!light_bulb_transition_color(handle, colors[i])) {
                 continue;
             }
-            light_bulb_wait_fade_done(handle);
+            light_bulb_wait_fade_done_with_abort(handle);
             light_bulb_delay_with_abort(handle, handle->scene.hold_duration_ms);
         }
 
@@ -551,7 +583,7 @@ void light_bulb_run_rainbow_effect(light_bulb_handle_t handle, uint32_t duration
             uint16_t hue = (uint16_t)((360U * i) / steps);
             light_bulb_color_t color = light_bulb_hsv_to_rgb(hue, 255U, 255U);
             (void)light_bulb_transition_color_duration(handle, color, step_ms);
-            light_bulb_wait_fade_done(handle);
+            light_bulb_wait_fade_done_with_abort(handle);
         }
         if (loop_count != 0U) {
             loops_done++;
@@ -579,12 +611,12 @@ void light_bulb_run_breath_effect(light_bulb_handle_t handle,
     uint32_t loops_done = 0U;
     while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
         (void)light_bulb_transition_color_duration(handle, color, half_period);
-        light_bulb_wait_fade_done(handle);
+        light_bulb_wait_fade_done_with_abort(handle);
         if (!handle->effect_running) {
             break;
         }
         (void)light_bulb_transition_color_duration(handle, off, half_period);
-        light_bulb_wait_fade_done(handle);
+        light_bulb_wait_fade_done_with_abort(handle);
         if (loop_count != 0U) {
             loops_done++;
         }
@@ -610,7 +642,7 @@ void light_bulb_run_pulse_effect(light_bulb_handle_t handle,
     uint32_t loops_done = 0U;
     while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
         (void)light_bulb_transition_color_duration(handle, color, on_ms);
-        light_bulb_wait_fade_done(handle);
+        light_bulb_wait_fade_done_with_abort(handle);
         if (!handle->effect_running) {
             break;
         }
@@ -684,7 +716,7 @@ void light_bulb_run_fire_effect(light_bulb_handle_t handle, uint32_t intensity, 
         uint32_t warm = brightness;
 
         (void)light_bulb_transition_cct_duration(handle, warm, cool, 60U);
-        light_bulb_wait_fade_done(handle);
+        light_bulb_wait_fade_done_with_abort(handle);
         light_bulb_delay_with_abort(handle, 40U);
     }
 
@@ -707,7 +739,7 @@ void light_bulb_run_color_wipe(light_bulb_handle_t handle,
     while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
         for (size_t i = 0; i < color_count && handle->effect_running; i++) {
             (void)light_bulb_transition_color_duration(handle, colors[i], step_duration);
-            light_bulb_wait_fade_done(handle);
+            light_bulb_wait_fade_done_with_abort(handle);
         }
         if (loop_count != 0U) {
             loops_done++;
@@ -731,12 +763,12 @@ void light_bulb_run_theater_chase(light_bulb_handle_t handle,
     uint32_t loops_done = 0U;
     while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
         (void)light_bulb_transition_color_duration(handle, color1, step_ms);
-        light_bulb_wait_fade_done(handle);
+        light_bulb_wait_fade_done_with_abort(handle);
         if (!handle->effect_running) {
             break;
         }
         (void)light_bulb_transition_color_duration(handle, color2, step_ms);
-        light_bulb_wait_fade_done(handle);
+        light_bulb_wait_fade_done_with_abort(handle);
         if (loop_count != 0U) {
             loops_done++;
         }
@@ -761,7 +793,7 @@ void light_bulb_run_scanner_effect(light_bulb_handle_t handle,
         for (size_t i = 0; i < (sizeof(levels) / sizeof(levels[0])) && handle->effect_running; i++) {
             light_bulb_color_t frame = light_bulb_color_brightness(color, levels[i]);
             (void)light_bulb_transition_color_duration(handle, frame, step_ms);
-            light_bulb_wait_fade_done(handle);
+            light_bulb_wait_fade_done_with_abort(handle);
         }
         if (loop_count != 0U) {
             loops_done++;
@@ -788,8 +820,260 @@ void light_bulb_run_larson_scanner(light_bulb_handle_t handle,
         for (size_t i = 0; i < (sizeof(levels) / sizeof(levels[0])) && handle->effect_running; i++) {
             light_bulb_color_t frame = light_bulb_color_brightness(color, levels[i]);
             (void)light_bulb_transition_color_duration(handle, frame, step_ms);
-            light_bulb_wait_fade_done(handle);
+            light_bulb_wait_fade_done_with_abort(handle);
         }
+        if (loop_count != 0U) {
+            loops_done++;
+        }
+    }
+
+    light_bulb_effect_end(handle);
+}
+
+void light_bulb_run_lightning_effect(light_bulb_handle_t handle, uint32_t intensity, uint32_t duration_ms)
+{
+    if (!handle || !handle->dimming || !light_bulb_effect_begin(handle)) {
+        return;
+    }
+
+    bool has_rgb = light_bulb_has_rgb_channels(handle);
+    bool has_cct = light_bulb_has_cct_channels(handle);
+    if (!has_rgb && !has_cct) {
+        light_bulb_effect_end(handle);
+        return;
+    }
+
+    uint32_t level = (intensity > 100U) ? 100U : intensity;
+    if (level == 0U) {
+        level = 1U;
+    }
+
+    uint32_t total_ms = (duration_ms > 0U) ? duration_ms : 7000U;
+    uint32_t start_ms = platform_get_time_ms();
+    const light_bulb_color_t off = LIGHT_BULB_COLOR_OFF;
+
+    while (handle->effect_running) {
+        uint32_t elapsed = platform_get_time_ms() - start_ms;
+        if (elapsed >= total_ms) {
+            break;
+        }
+
+        uint32_t rnd = light_bulb_next_rand(handle);
+        uint32_t idle_ms = 120U + ((100U - level) * 8U) + (rnd % 220U);
+        light_bulb_delay_with_abort(handle, idle_ms);
+        if (!handle->effect_running) {
+            break;
+        }
+
+        uint32_t burst = 1U + ((rnd >> 8) % ((level >= 70U) ? 4U : 3U));
+        for (uint32_t i = 0; i < burst && handle->effect_running; i++) {
+            rnd = light_bulb_next_rand(handle);
+            uint32_t flash_ms = 18U + (rnd % 65U);
+            uint32_t decay_ms = 24U + ((rnd >> 8) % 70U);
+
+            light_bulb_color_t flash_color = {
+                (uint8_t)(200U + ((rnd >> 16) % 56U)),
+                (uint8_t)(210U + ((rnd >> 24) % 46U)),
+                255U
+            };
+
+            uint8_t bright_pct = (uint8_t)(35U + ((rnd >> 4) % 66U));
+            bright_pct = (uint8_t)((bright_pct * level + 99U) / 100U);
+            if (bright_pct == 0U) {
+                bright_pct = 1U;
+            }
+
+            if (has_rgb) {
+                light_bulb_color_t frame = light_bulb_color_brightness(flash_color, bright_pct);
+                (void)light_bulb_transition_color_duration(handle, frame, flash_ms);
+            } else {
+                uint32_t brightness = (handle->max_value * bright_pct) / 100U;
+                uint32_t cool = brightness;
+                uint32_t warm = (brightness * 20U) / 100U;
+                (void)light_bulb_transition_cct_duration(handle, warm, cool, flash_ms);
+            }
+            light_bulb_wait_fade_done_with_abort(handle);
+            if (!handle->effect_running) {
+                break;
+            }
+
+            if (has_rgb) {
+                (void)light_bulb_transition_color_duration(handle, off, decay_ms);
+            } else {
+                (void)light_bulb_transition_cct_duration(handle, 0U, 0U, decay_ms);
+            }
+            light_bulb_wait_fade_done_with_abort(handle);
+            if (!handle->effect_running) {
+                break;
+            }
+
+            uint32_t gap_ms = 18U + ((rnd >> 12) % 90U);
+            light_bulb_delay_with_abort(handle, gap_ms);
+        }
+    }
+
+    light_bulb_effect_end(handle);
+}
+
+void light_bulb_run_ocean_wave_effect(light_bulb_handle_t handle, uint32_t period_ms, uint32_t loop_count)
+{
+    if (!handle || !handle->dimming || !light_bulb_effect_begin(handle)) {
+        return;
+    }
+
+    bool has_rgb = light_bulb_has_rgb_channels(handle);
+    bool has_cct = light_bulb_has_cct_channels(handle);
+    if (!has_rgb && !has_cct) {
+        light_bulb_effect_end(handle);
+        return;
+    }
+
+    const uint16_t steps = 20U;
+    uint32_t step_ms = (period_ms > 0U) ? (period_ms / steps) : 140U;
+    if (step_ms == 0U) {
+        step_ms = 1U;
+    }
+
+    const light_bulb_color_t deep_blue = {0U, 44U, 160U};
+    const light_bulb_color_t sea_cyan = {34U, 170U, 226U};
+    uint32_t loops_done = 0U;
+
+    while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
+        for (uint16_t i = 0U; i < steps && handle->effect_running; i++) {
+            uint32_t saw = (uint32_t)i * 200U / (steps - 1U);
+            uint8_t mix = (saw <= 100U) ? (uint8_t)saw : (uint8_t)(200U - saw);
+            uint8_t brightness = (uint8_t)(35U + (mix / 2U));
+
+            if (has_rgb) {
+                light_bulb_color_t blend = light_bulb_color_mix(deep_blue, sea_cyan, mix);
+                light_bulb_color_t frame = light_bulb_color_brightness(blend, brightness);
+                (void)light_bulb_transition_color_duration(handle, frame, step_ms);
+            } else {
+                uint32_t total = (handle->max_value * brightness) / 100U;
+                uint32_t cool_pct = 35U + (mix / 2U);
+                uint32_t cool = (total * cool_pct) / 100U;
+                uint32_t warm = (total > cool) ? (total - cool) : 0U;
+                (void)light_bulb_transition_cct_duration(handle, warm, cool, step_ms);
+            }
+            light_bulb_wait_fade_done_with_abort(handle);
+        }
+
+        if (loop_count != 0U) {
+            loops_done++;
+        }
+    }
+
+    light_bulb_effect_end(handle);
+}
+
+void light_bulb_run_aurora_effect(light_bulb_handle_t handle, uint32_t period_ms, uint32_t loop_count)
+{
+    if (!handle || !handle->dimming || !light_bulb_effect_begin(handle)) {
+        return;
+    }
+
+    bool has_rgb = light_bulb_has_rgb_channels(handle);
+    bool has_cct = light_bulb_has_cct_channels(handle);
+    if (!has_rgb && !has_cct) {
+        light_bulb_effect_end(handle);
+        return;
+    }
+
+    const uint16_t steps = 28U;
+    uint32_t step_ms = (period_ms > 0U) ? (period_ms / steps) : 120U;
+    if (step_ms == 0U) {
+        step_ms = 1U;
+    }
+
+    uint32_t loops_done = 0U;
+    while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
+        for (uint16_t i = 0U; i < steps && handle->effect_running; i++) {
+            uint32_t rnd = light_bulb_next_rand(handle);
+            uint16_t hue = (uint16_t)(90U + ((210U * i) / steps) + (rnd % 15U));
+            if (hue >= 360U) {
+                hue = (uint16_t)(hue - 360U);
+            }
+
+            if (has_rgb) {
+                uint8_t sat = (uint8_t)(165U + ((rnd >> 8) % 75U));
+                uint8_t val = (uint8_t)(95U + ((rnd >> 16) % 140U));
+                light_bulb_color_t frame = light_bulb_hsv_to_rgb(hue, sat, val);
+                (void)light_bulb_transition_color_duration(handle, frame, step_ms);
+            } else {
+                uint8_t brightness = (uint8_t)(35U + ((rnd >> 8) % 50U));
+                uint8_t cool_pct = (uint8_t)(20U + ((hue * 55U) / 359U));
+                uint32_t total = (handle->max_value * brightness) / 100U;
+                uint32_t cool = (total * cool_pct) / 100U;
+                uint32_t warm = (total > cool) ? (total - cool) : 0U;
+                (void)light_bulb_transition_cct_duration(handle, warm, cool, step_ms);
+            }
+            light_bulb_wait_fade_done_with_abort(handle);
+        }
+
+        if (loop_count != 0U) {
+            loops_done++;
+        }
+    }
+
+    light_bulb_effect_end(handle);
+}
+
+void light_bulb_run_forest_breeze_effect(light_bulb_handle_t handle, uint32_t period_ms, uint32_t loop_count)
+{
+    if (!handle || !handle->dimming || !light_bulb_effect_begin(handle)) {
+        return;
+    }
+
+    const uint16_t steps = 18U;
+    uint32_t step_ms = (period_ms > 0U) ? (period_ms / steps) : 180U;
+    if (step_ms == 0U) {
+        step_ms = 1U;
+    }
+
+    bool has_rgb = light_bulb_has_rgb_channels(handle);
+    bool has_cct = light_bulb_has_cct_channels(handle);
+    if (!has_rgb && !has_cct) {
+        light_bulb_effect_end(handle);
+        return;
+    }
+    const light_bulb_color_t leaf_shadow = {48U, 82U, 34U};
+    const light_bulb_color_t leaf_sun = {140U, 178U, 88U};
+    uint32_t loops_done = 0U;
+
+    while (handle->effect_running && (loop_count == 0U || loops_done < loop_count)) {
+        for (uint16_t i = 0U; i < steps && handle->effect_running; i++) {
+            uint32_t rnd = light_bulb_next_rand(handle);
+            uint32_t saw = (uint32_t)i * 200U / (steps - 1U);
+            uint8_t phase = (saw <= 100U) ? (uint8_t)saw : (uint8_t)(200U - saw);
+
+            if (has_cct) {
+                uint8_t brightness_pct = (uint8_t)(30U + (phase / 2U));
+                uint8_t cool_pct = (uint8_t)(12U + (phase / 3U));
+                uint8_t jitter = (uint8_t)(rnd % 6U);
+                if (brightness_pct + jitter < 100U) {
+                    brightness_pct = (uint8_t)(brightness_pct + jitter);
+                }
+                if (cool_pct + (jitter / 2U) < 60U) {
+                    cool_pct = (uint8_t)(cool_pct + (jitter / 2U));
+                }
+
+                uint32_t brightness = (handle->max_value * brightness_pct) / 100U;
+                uint32_t cool = (brightness * cool_pct) / 100U;
+                uint32_t warm = (brightness > cool) ? (brightness - cool) : 0U;
+                (void)light_bulb_transition_cct_duration(handle, warm, cool, step_ms);
+            } else if (has_rgb) {
+                light_bulb_color_t blend = light_bulb_color_mix(leaf_shadow, leaf_sun, phase);
+                uint8_t brightness = (uint8_t)(28U + (phase / 2U) + (rnd % 8U));
+                if (brightness > 100U) {
+                    brightness = 100U;
+                }
+                light_bulb_color_t frame = light_bulb_color_brightness(blend, brightness);
+                (void)light_bulb_transition_color_duration(handle, frame, step_ms);
+            }
+
+            light_bulb_wait_fade_done_with_abort(handle);
+        }
+
         if (loop_count != 0U) {
             loops_done++;
         }
@@ -1049,6 +1333,18 @@ bool light_bulb_start_effect(light_bulb_handle_t handle, const light_bulb_effect
         case LIGHT_BULB_EFFECT_LARSON_SCANNER:
             light_bulb_run_larson_scanner(handle, color, speed_ms, loop_count);
             return true;
+        case LIGHT_BULB_EFFECT_LIGHTNING:
+            light_bulb_run_lightning_effect(handle, config->intensity, speed_ms);
+            return true;
+        case LIGHT_BULB_EFFECT_OCEAN_WAVE:
+            light_bulb_run_ocean_wave_effect(handle, speed_ms, loop_count);
+            return true;
+        case LIGHT_BULB_EFFECT_AURORA:
+            light_bulb_run_aurora_effect(handle, speed_ms, loop_count);
+            return true;
+        case LIGHT_BULB_EFFECT_FOREST_BREEZE:
+            light_bulb_run_forest_breeze_effect(handle, speed_ms, loop_count);
+            return true;
         default:
             return false;
     }
@@ -1068,3 +1364,4 @@ bool light_bulb_is_effect_running(light_bulb_handle_t handle)
 {
     return (handle != NULL) && handle->effect_running;
 }
+

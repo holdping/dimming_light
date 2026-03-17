@@ -215,6 +215,7 @@ idf.py -p <PORT> flash monitor
 - 白光调节：`light_bulb_transition_cct`、`light_bulb_transition_cw`、`light_bulb_transition_ww`
 - 预设场景：`light_bulb_apply_relax_scene`、`light_bulb_apply_reading_scene`、`light_bulb_apply_night_scene`、`light_bulb_sunrise_simulation` 等
 - 动效玩法：`light_bulb_run_rainbow_effect`、`light_bulb_run_breath_effect`、`light_bulb_run_strobe_effect`、`light_bulb_run_fire_effect`、`light_bulb_run_scanner_effect`
+- 自然光效：`light_bulb_run_lightning_effect`、`light_bulb_run_ocean_wave_effect`、`light_bulb_run_aurora_effect`、`light_bulb_run_forest_breeze_effect`
 - 颜色工具：`light_bulb_color_mix`、`light_bulb_color_brightness`、`light_bulb_color_temperature_to_rgb`、`light_bulb_color_temperature_to_cct`
 - 运行控制：`light_bulb_start_effect`、`light_bulb_stop_effect`、`light_bulb_is_effect_running`
 
@@ -225,4 +226,8 @@ light_bulb_transition_cct_percent(bulb, 25, 255);   // 偏暖白
 light_bulb_transition_cw(bulb, 255);                // 仅冷白
 light_bulb_run_breath_effect(bulb, LIGHT_BULB_COLOR_CYAN, 1800, 10);
 light_bulb_run_rainbow_effect(bulb, 2400, 5);
+light_bulb_run_lightning_effect(bulb, 85, 7000);    // 雷暴闪电
+light_bulb_run_ocean_wave_effect(bulb, 2600, 8);    // 海浪蓝青渐变
+light_bulb_run_aurora_effect(bulb, 3200, 6);        // 极光色漂移
+light_bulb_run_forest_breeze_effect(bulb, 2800, 8); // 森林微风明暗律动
 ```

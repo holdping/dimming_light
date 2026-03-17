@@ -60,15 +60,15 @@ static const light_bulb_color_t s_color_cycle[] = {
     {255, 255, 0}
 };
 
-static const demo_profile_step_t s_demo_steps[] = {
-    {DEMO_STEP_CCT_WARM, 1000U},
-    {DEMO_STEP_CCT_NEUTRAL, 1000U},
-    {DEMO_STEP_CCT_COOL, 1000U},
-    {DEMO_STEP_CW_ONLY, 1000U},
-    {DEMO_STEP_WW_ONLY, 1000U},
-    {DEMO_STEP_CCT_MIX, 1000U},
-    {DEMO_STEP_RGB_CYCLE, 800U}
-};
+//  static const demo_profile_step_t s_demo_steps[] = {
+//     {DEMO_STEP_CCT_WARM, 1000U},
+//     {DEMO_STEP_CCT_NEUTRAL, 1000U},
+//     {DEMO_STEP_CCT_COOL, 1000U},
+//     {DEMO_STEP_CW_ONLY, 1000U},
+//     {DEMO_STEP_WW_ONLY, 1000U},
+//     {DEMO_STEP_CCT_MIX, 1000U},
+//     {DEMO_STEP_RGB_CYCLE, 800U}
+// };
 
 static bool app_ledc_driver_init(void *user_ctx)
 {
@@ -172,8 +172,8 @@ void app_main(void)
     bulb_config.map.warm = 0U;
     bulb_config.map.cool = 1U;
 
-    bulb_config.scene.fade_duration_ms = 3000U;
-    bulb_config.scene.hold_duration_ms = 1500U;
+    bulb_config.scene.fade_duration_ms = 1500U;
+    bulb_config.scene.hold_duration_ms = 500U;
     bulb_config.scene.gamma_enabled = true;
     bulb_config.scene.gamma_type = GAMMA_22;
 
@@ -190,38 +190,48 @@ void app_main(void)
     uint32_t current_hold_ms = 0U;
 
     while (1) {
-        uint32_t now_ms = platform_get_time_ms();
+        // uint32_t now_ms = platform_get_time_ms();
 
-        if (!transition_in_progress) {
-            if (now_ms >= hold_deadline_ms) {
-                const demo_profile_step_t *step_cfg = &s_demo_steps[step_index];
-                bool ok = start_demo_step(bulb, step_cfg->step, rgb_index);
-                if (!ok) {
-                    printf("Transition failed at step %u\n", (unsigned)step_index);
-                    hold_deadline_ms = now_ms + 200U;
-                } else {
-                    transition_in_progress = true;
-                    current_hold_ms = step_cfg->hold_ms;
-                }
-            }
-        } else if (!light_bulb_is_fading(bulb)) {
-            transition_in_progress = false;
-            hold_deadline_ms = now_ms + current_hold_ms;
+        // if (!transition_in_progress) {
+        //     if (now_ms >= hold_deadline_ms) {
+        //         const demo_profile_step_t *step_cfg = &s_demo_steps[step_index];
+        //         bool ok = start_demo_step(bulb, step_cfg->step, rgb_index);
+        //         if (!ok) {
+        //             printf("Transition failed at step %u\n", (unsigned)step_index);
+        //             hold_deadline_ms = now_ms + 200U;
+        //         } else {
+        //             transition_in_progress = true;
+        //             current_hold_ms = step_cfg->hold_ms;
+        //         }
+        //     }
+        // } else if (!light_bulb_is_fading(bulb)) {
+        //     transition_in_progress = false;
+        //     hold_deadline_ms = now_ms + current_hold_ms;
 
-            if (s_demo_steps[step_index].step == DEMO_STEP_RGB_CYCLE) {
-                rgb_index++;
-                if (rgb_index >= (sizeof(s_color_cycle) / sizeof(s_color_cycle[0]))) {
-                    rgb_index = 0U;
-                    step_index = 0U;
-                }
-            } else {
-                step_index++;
-                if (step_index >= (sizeof(s_demo_steps) / sizeof(s_demo_steps[0]))) {
-                    step_index = 0U;
-                }
-            }
-        }
+        //     if (s_demo_steps[step_index].step == DEMO_STEP_RGB_CYCLE) {
+        //         rgb_index++;
+        //         if (rgb_index >= (sizeof(s_color_cycle) / sizeof(s_color_cycle[0]))) {
+        //             rgb_index = 0U;
+        //             step_index = 0U;
+        //         }
+        //     } else {
+        //         step_index++;
+        //         if (step_index >= (sizeof(s_demo_steps) / sizeof(s_demo_steps[0]))) {
+        //             step_index = 0U;
+        //         }
+        //     }
+        // }
 
-        platform_delay_ms(20U);
+        // platform_delay_ms(20U);
+        light_bulb_transition_color(bulb, s_color_cycle[rgb_index]);
+        rgb_index = (rgb_index + 1U) % (sizeof(s_color_cycle) / sizeof(s_color_cycle[0]));
+        platform_delay_ms(1500U);
+        light_bulb_transition_color(bulb, s_color_cycle[rgb_index]);
+        platform_delay_ms(1500U);
+        light_bulb_run_rainbow_effect(bulb, 2400, 5);
+        light_bulb_run_lightning_effect(bulb, 85, 7000);    // 雷暴闪电
+        light_bulb_run_ocean_wave_effect(bulb, 2600, 8);    // 海浪蓝青渐变
+        light_bulb_run_aurora_effect(bulb, 3200, 6);        // 极光色漂移
+        light_bulb_run_forest_breeze_effect(bulb, 2800, 8); // 森林微风明暗律动
     }
 }
